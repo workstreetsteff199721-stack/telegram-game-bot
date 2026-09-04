@@ -1,17 +1,16 @@
-FROM python:3.10-slim
+FROM eclipse-temurin:17-jre-jammy
 
-# Установка Java (OpenJDK 17) для сборки и подписи APK
+# Установка Python и необходимых утилит
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openjdk-17-jre-headless zip unzip && \
+    apt-get install -y --no-install-recommends python3 python3-pip zip unzip && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Копирование файлов бота
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Запуск бота
-CMD ["python", "bot_cloud.py"]
+# Создание простого веб-сервера для health check Render и запуск бота
+CMD ["python3", "bot_cloud.py"]
