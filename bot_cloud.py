@@ -19,7 +19,6 @@ from telegram.ext import (
     ContextTypes
 )
 
-# Токены и ключи
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8994105870:AAGdJsv0GkpZfXUnOAf9YQ5UUphVvZFzBOs")
 GEMINI_KEY = os.getenv("GEMINI_KEY", "AIzaSyC2D7Ou-4LhCeuJnzsCbsvCbPlV1AI0bQQ")
 PORT = int(os.getenv("PORT", 8080))
@@ -41,7 +40,7 @@ user_projects = {}
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER HEALTH CHECK И ЗАЩИТЫ ОТ СНА ---
+# --- ВЕБ-СЕРВЕР ЗАЩИТЫ ОТ СНА ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -54,7 +53,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        # Отключаем лишний спам логов в консоли Render
         return
 
 def run_http_server():
@@ -63,23 +61,21 @@ def run_http_server():
     server.serve_forever()
 
 def self_ping_loop():
-    # Каждые 8 минут отправляем запрос к себе, чтобы Render НИКОГДА не засыпал
     time.sleep(30)
     while True:
         try:
             url = RENDER_EXTERNAL_URL if RENDER_EXTERNAL_URL else f"http://127.0.0.1:{PORT}"
             requests.get(url, timeout=10)
-            logger.info("Self-ping successful: keeping Render awake 24/7!")
-        except Exception as e:
-            logger.warning(f"Self-ping notice: {e}")
-        time.sleep(480) # 8 минут (Render засыпает через 15)
+        except Exception:
+            pass
+        time.sleep(480)
 
-# --- ЛОГИКА БОТА ---
+# --- ПАНЕЛЬ КНОПОК ДЛЯ МАМЫ ---
 PERMANENT_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("🎮 Выбрать готовую игру"), KeyboardButton("🆕 Новая игра")],
-        [KeyboardButton("🤖 Выбрать модель ИИ"), KeyboardButton("✏️ Улучшить / Изменить")],
-        [KeyboardButton("❓ Помощь")]
+        [KeyboardButton("📱 Собрать игру в APK"), KeyboardButton("✏️ Улучшить / Изменить")],
+        [KeyboardButton("🤖 Выбрать модель ИИ"), KeyboardButton("❓ Помощь")]
     ],
     resize_keyboard=True
 )
@@ -89,15 +85,15 @@ SYSTEM_PROMPT = """
 Ты умеешь создавать игры с нуля и ДОРАБАТЫВАТЬ существующие игры по запросу пользователя.
 
 Всегда выдавай ПОЛНЫЙ рабочий обновленный код СРАЗУ В ДВУХ ВАРИАНТАХ:
-1) Lua-код для Android APK (движок Love2D)
-2) HTML5-код для быстрого теста в браузере (HTML, Canvas, CSS, JS в одном файле)
+1) HTML5-код для мгновенного теста в браузере (HTML, Canvas, CSS, JS в одном файле)
+2) Lua-код для сборки в Android APK (движок Love2D)
 
 ФОРМАТ ОТВЕТА (СТРОГО СОБЛЮДАЙ):
-```lua
--- здесь полный код Love2D (main.lua)
-```
 ```html
 <!-- здесь полный код HTML5 -->
+```
+```lua
+-- здесь полный код Love2D (main.lua)
 ```
 
 ОБЩИЕ ТРЕБОВАНИЯ:
@@ -115,10 +111,10 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
     if is_update and (current_lua or current_html):
         prompt_context = (
             f"{SYSTEM_PROMPT}\n\n"
-            f"ТЕКУЩИЙ КОД ИГРЫ (LUA):\n```lua\n{current_lua}\n```\n\n"
             f"ТЕКУЩИЙ КОД ИГРЫ (HTML):\n```html\n{current_html}\n```\n\n"
+            f"ТЕКУЩИЙ КОД ИГРЫ (LUA):\n```lua\n{current_lua}\n```\n\n"
             f"ЗАПРОС НА ДОРАБОТКУ:\n{user_prompt}\n\n"
-            f"Внеси запрошенные изменения и выдай ПОЛНЫЙ исправленный код игры в блоках ```lua ... ``` и ```html ... ```."
+            f"Внеси запрошенные изменения и выдай ПОЛНЫЙ исправленный код игры в блоках ```html ... ``` и ```lua ... ```."
         )
     else:
         prompt_context = f"{SYSTEM_PROMPT}\n\nПользователь создает НОВУЮ игру:\n{user_prompt}"
@@ -147,18 +143,18 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
     new_lua = ""
     new_html = ""
 
-    if "```lua" in text:
-        new_lua = text.split("```lua")[1].split("```")[0].strip()
-    
     if "```html" in text:
         new_html = text.split("```html")[1].split("```")[0].strip()
+
+    if "```lua" in text:
+        new_lua = text.split("```lua")[1].split("```")[0].strip()
 
     if new_lua or new_html:
         user_projects[user_id]["lua"] = new_lua if new_lua else current_lua
         user_projects[user_id]["html"] = new_html if new_html else current_html
         user_projects[user_id]["awaiting_fix"] = False
 
-    return user_projects[user_id]["lua"], user_projects[user_id]["html"]
+    return user_projects[user_id]["html"], user_projects[user_id]["lua"]
 
 def build_apk(lua_code: str, user_id: int) -> str:
     love_bytes = io.BytesIO()
@@ -179,6 +175,7 @@ def build_apk(lua_code: str, user_id: int) -> str:
                     zout.writestr(item, buffer)
             zout.writestr('assets/game.love', game_love_data)
 
+    # Запуск signer
     cmd = ["java", "-jar", JAR_SIGNER, "-a", out_apk_path, "--overwrite", "--allowResign"]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
@@ -186,6 +183,15 @@ def build_apk(lua_code: str, user_id: int) -> str:
         raise Exception("Не удалось подписать APK-файл")
         
     return out_apk_path
+
+# Инлайн-кнопки под готовым тестом
+def get_game_actions_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📱 Игра нравится! Собрать в APK", callback_data="build_apk_now")],
+        [InlineKeyboardButton("✏️ Улучшить / Изменить", callback_data="improve_game")],
+        [InlineKeyboardButton("🆕 Выбрать другую игру", callback_data="new_game")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def get_preset_inline_keyboard():
     keyboard = [
@@ -208,10 +214,11 @@ def get_models_inline_keyboard(user_id: int):
 async def post_init(application: Application):
     bot_commands = [
         BotCommand("start", "Главное меню"),
+        BotCommand("apk", "Собрать текущую игру в APK"),
         BotCommand("models", "Выбрать модель ИИ"),
         BotCommand("menu", "Список готовых игр"),
         BotCommand("new", "Создать новую игру"),
-        BotCommand("fix", "Улучшить текущую игру"),
+        BotCommand("fix", "Улучшить игру"),
         BotCommand("help", "Помощь")
     ]
     await application.bot.set_my_commands(bot_commands)
@@ -222,12 +229,47 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
     
     text = (
-        "👋 **Здравствуйте! Я помогу вам создать игру для телефона (Сервер 24/7).**\n\n"
-        "🧠 Модель ИИ: **Gemini 3.8 Flash**\n"
+        "👋 **Здравствуйте! Я помогу вам создать игру для телефона.**\n\n"
+        "⚡ Теперь игра создается **мгновенно в HTML** для быстрого теста!\n"
+        "📱 А когда всё понравится — вы сможете нажать кнопку **«Собрать в APK»** в 1 клик.\n\n"
         "👇 Выберите готовую игру или используйте кнопки внизу:"
     )
     await update.message.reply_text(text, reply_markup=PERMANENT_KEYBOARD, parse_mode="Markdown")
     await update.message.reply_text("Выберите игру из списка:", reply_markup=get_preset_inline_keyboard())
+
+async def process_apk_build(message, user_id: int):
+    user_data = user_projects.get(user_id, {})
+    lua_code = user_data.get("lua", "")
+    
+    if not lua_code:
+        await message.reply_text(
+            "⚠️ Сначала создайте или выберите игру, а затем нажмите кнопку сборки APK!",
+            reply_markup=PERMANENT_KEYBOARD
+        )
+        return
+
+    status_msg = await message.reply_text("⚙️ **Компилирую и подписываю APK для Android...**\nПожалуйста, подождите несколько секунд...")
+    
+    try:
+        loop = asyncio.get_event_loop()
+        apk_file_path = await loop.run_in_executor(None, build_apk, lua_code, user_id)
+        
+        with open(apk_file_path, "rb") as f:
+            await message.reply_document(
+                document=f,
+                filename="Moya_Igra.apk",
+                caption="📱 **Ваша игра упакована в APK!**\n"
+                        "Нажмите на файл на телефоне и выберите «Установить».\n\n"
+                        "🎉 Приятной игры!",
+                reply_markup=PERMANENT_KEYBOARD
+            )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"APK error: {e}")
+        await status_msg.edit_text(f"❌ Ошибка сборки APK: {str(e)}", reply_markup=PERMANENT_KEYBOARD)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -238,12 +280,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_projects:
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
 
+    if data == "build_apk_now":
+        await process_apk_build(query.message, user_id)
+        return
+
+    if data == "new_game":
+        user_projects[user_id]["html"] = ""
+        user_projects[user_id]["lua"] = ""
+        user_projects[user_id]["awaiting_fix"] = False
+        await query.message.reply_text("✨ Выберите игру из списка:", reply_markup=get_preset_inline_keyboard())
+        return
+
+    if data == "improve_game":
+        user_projects[user_id]["awaiting_fix"] = True
+        await query.message.reply_text(
+            "✏️ **Что вы хотите изменить в игре?**\nНапишите просто текстом (например: *«сделай скорость меньше»* или *«добавь кнопку паузы»*):",
+            reply_markup=PERMANENT_KEYBOARD
+        )
+        return
+
     if data.startswith("set_model_"):
         new_model = data.replace("set_model_", "")
         user_projects[user_id]["model"] = new_model
         model_name = AVAILABLE_MODELS.get(new_model, new_model)
         await query.message.edit_text(
-            f"✅ **Модель ИИ изменена на:**\n`{model_name}`\n\nВсе новые игры будут делаться на этой модели!",
+            f"✅ **Модель ИИ изменена на:**\n`{model_name}`",
             reply_markup=get_models_inline_keyboard(user_id),
             parse_mode="Markdown"
         )
@@ -273,10 +334,9 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
     stage_title = "Улучшение игры" if is_update else "Создание игры"
     
     status_msg = await message.reply_text(
-        f"⚙️ **[{stage_title}]**\n"
+        f"⚡ **[{stage_title}]**\n"
         f"🤖 Модель: `{selected_model}`\n"
-        f"⏳ Статус: Пишу код игры... (0 сек)\n"
-        f"🟢 Бот работает в облаке!"
+        f"⏳ Создаю быструю версию для теста... (0 сек)"
     )
 
     start_time = time.time()
@@ -292,16 +352,11 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
             elapsed = int(time.time() - start_time)
             dot = dots[i % len(dots)]
             i += 1
-            
             try:
-                if elapsed < 20:
-                    status_text = f"⚙️ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ Статус: ИИ придумывает правила и пишет код{dot} ({elapsed} сек)\n🟢 Бот работает, подождите немного..."
-                elif elapsed < 40:
-                    status_text = f"⚙️ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ Статус: Компилирую логику и собираю графику{dot} ({elapsed} сек)\n🟢 Почти готово, обрабатываю код..."
-                else:
-                    status_text = f"⚙️ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ Статус: Финальная обработка и упаковка{dot} ({elapsed} сек)\n🟢 Все отлично, завершаю генерацию..."
-                
-                await status_msg.edit_text(status_text, parse_mode="Markdown")
+                await status_msg.edit_text(
+                    f"⚡ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ ИИ пишет игру{dot} ({elapsed} сек)\n🟢 Скоро будет готово!",
+                    parse_mode="Markdown"
+                )
             except Exception:
                 pass
 
@@ -309,22 +364,10 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
 
     try:
         loop = asyncio.get_event_loop()
-        lua_code, html_code = await loop.run_in_executor(None, generate_or_update_game, user_id, prompt, is_update)
-
-        apk_file_path = None
-        if lua_code:
-            try:
-                await status_msg.edit_text(
-                    f"📱 **[Компиляция APK]**\n"
-                    f"⏱ Время разработки: {int(time.time() - start_time)} сек\n"
-                    f"📦 Упаковываю и подписываю файл приложения..."
-                )
-            except Exception: pass
-            apk_file_path = await loop.run_in_executor(None, build_apk, lua_code, user_id)
+        html_code, lua_code = await loop.run_in_executor(None, generate_or_update_game, user_id, prompt, is_update)
 
         is_done = True
         timer_task.cancel()
-
         total_sec = int(time.time() - start_time)
 
         if html_code:
@@ -332,19 +375,11 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
             await message.reply_document(
                 document=html_bytes,
                 filename="game.html",
-                caption=f"🌐 **1. Проверить в браузере (`game.html`)**\n⏱ Время сборки: {total_sec} сек"
+                caption=f"🎮 **Игра готова за {total_sec} сек!**\n\n"
+                        f"👉 **Шаг 1:** Откройте `game.html` в телефоне, чтобы сразу поиграть и проверить.\n\n"
+                        f"👉 **Шаг 2:** Если игра понравилась — нажмите кнопку **«📱 Собрать в APK»** ниже!",
+                reply_markup=get_game_actions_keyboard()
             )
-
-        if apk_file_path:
-            with open(apk_file_path, "rb") as f:
-                await message.reply_document(
-                    document=f,
-                    filename="Moya_Igra.apk",
-                    caption=f"📲 **2. Установить на телефон (`Moya_Igra.apk`)**\n"
-                            f"⚡ Готово за {total_sec} сек!\n\n"
-                            f"👇 Для изменений нажмите кнопку **«✏️ Улучшить / Изменить»** внизу!",
-                    reply_markup=PERMANENT_KEYBOARD
-                )
 
         try:
             await status_msg.delete()
@@ -356,11 +391,7 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
         timer_task.cancel()
         logger.error(f"Ошибка: {e}")
         try:
-            await status_msg.edit_text(
-                f"❌ **Произошла ошибка при сборке:**\n`{str(e)}`\n\nПопробуйте еще раз!",
-                reply_markup=PERMANENT_KEYBOARD,
-                parse_mode="Markdown"
-            )
+            await status_msg.edit_text(f"❌ Ошибка: {str(e)}", reply_markup=PERMANENT_KEYBOARD)
         except Exception:
             pass
 
@@ -371,10 +402,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_projects:
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
 
+    # Кнопка сборки APK
+    if text in ["📱 Собрать игру в APK", "/apk"]:
+        await process_apk_build(update.message, user_id)
+        return
+
     if text in ["🤖 Выбрать модель ИИ", "/models"]:
         curr = user_projects[user_id].get("model", "gemini-3.8-flash")
         await update.message.reply_text(
-            f"🤖 **Выберите модель Gemini AI:**\nСейчас активирована: `{AVAILABLE_MODELS.get(curr, curr)}`",
+            f"🤖 **Выберите модель Gemini AI:**\nСейчас активна: `{AVAILABLE_MODELS.get(curr, curr)}`",
             reply_markup=get_models_inline_keyboard(user_id),
             parse_mode="Markdown"
         )
@@ -404,10 +440,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         curr_m = user_projects[user_id].get("model", "gemini-3.8-flash")
         help_text = (
             "❓ **Как пользоваться:**\n\n"
-            f"• Модель ИИ: **{AVAILABLE_MODELS.get(curr_m, curr_m)}**\n"
-            "• Нажмите **«🎮 Выбрать готовую игру»** или напишите свою идею.\n"
-            "• Скачайте `game.html` (попробовать сразу) или `Moya_Igra.apk` (установить на телефон).\n"
-            "• Нажмите **«✏️ Улучшить / Изменить»**, чтобы добавить новые функции!"
+            "1. Выберите игру или напишите идею — бот за 5-10 секунд сделает `game.html`.\n"
+            "2. Попробуйте игру в телефоне. Если нужно — напишите, что изменить.\n"
+            "3. Когда игра полностью устроит — нажмите кнопку **«📱 Собрать игру в APK»**!"
         )
         await update.message.reply_text(help_text, reply_markup=PERMANENT_KEYBOARD, parse_mode="Markdown")
         return
@@ -421,17 +456,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_game_creation(update.message, user_id, text, is_update=is_update)
 
 def main():
-    # Запускаем фоновый веб-сервер и авто-самопинг
     threading.Thread(target=run_http_server, daemon=True).start()
     threading.Thread(target=self_ping_loop, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("apk", lambda u, c: process_apk_build(u.message, u.effective_user.id)))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print(f"🤖 Сервер и бот запущены на порту {PORT}! Защита от сна активна.")
+    print(f"🤖 Бот запущен! Сборка APK теперь доступна отдельной кнопкой.")
     app.run_polling()
 
 if __name__ == "__main__":
