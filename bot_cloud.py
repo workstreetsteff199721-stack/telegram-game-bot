@@ -6,7 +6,9 @@ import time
 import asyncio
 import zipfile
 import subprocess
+import threading
 import requests
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from telegram.ext import (
     Application,
@@ -17,8 +19,11 @@ from telegram.ext import (
     ContextTypes
 )
 
+# Токены и ключи
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8994105870:AAGdJsv0GkpZfXUnOAf9YQ5UUphVvZFzBOs")
 GEMINI_KEY = os.getenv("GEMINI_KEY", "AIzaSyC2D7Ou-4LhCeuJnzsCbsvCbPlV1AI0bQQ")
+PORT = int(os.getenv("PORT", 8080))
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JAR_SIGNER = os.path.join(BASE_DIR, "uber-apk-signer.jar")
@@ -36,6 +41,40 @@ user_projects = {}
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER HEALTH CHECK И ЗАЩИТЫ ОТ СНА ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Game Bot 24/7 is LIVE and HEALTHY!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        # Отключаем лишний спам логов в консоли Render
+        return
+
+def run_http_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+    logger.info(f"Health check HTTP server running on port {PORT}")
+    server.serve_forever()
+
+def self_ping_loop():
+    # Каждые 8 минут отправляем запрос к себе, чтобы Render НИКОГДА не засыпал
+    time.sleep(30)
+    while True:
+        try:
+            url = RENDER_EXTERNAL_URL if RENDER_EXTERNAL_URL else f"http://127.0.0.1:{PORT}"
+            requests.get(url, timeout=10)
+            logger.info("Self-ping successful: keeping Render awake 24/7!")
+        except Exception as e:
+            logger.warning(f"Self-ping notice: {e}")
+        time.sleep(480) # 8 минут (Render засыпает через 15)
+
+# --- ЛОГИКА БОТА ---
 PERMANENT_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("🎮 Выбрать готовую игру"), KeyboardButton("🆕 Новая игра")],
@@ -140,7 +179,6 @@ def build_apk(lua_code: str, user_id: int) -> str:
                     zout.writestr(item, buffer)
             zout.writestr('assets/game.love', game_love_data)
 
-    # В Linux / Docker java доступна напрямую через команду 'java'
     cmd = ["java", "-jar", JAR_SIGNER, "-a", out_apk_path, "--overwrite", "--allowResign"]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
@@ -184,7 +222,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
     
     text = (
-        "👋 **Здравствуйте! Я помогу вам создать игру для телефона (Облачный 24/7 сервер).**\n\n"
+        "👋 **Здравствуйте! Я помогу вам создать игру для телефона (Сервер 24/7).**\n\n"
         "🧠 Модель ИИ: **Gemini 3.8 Flash**\n"
         "👇 Выберите готовую игру или используйте кнопки внизу:"
     )
@@ -383,13 +421,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_game_creation(update.message, user_id, text, is_update=is_update)
 
 def main():
+    # Запускаем фоновый веб-сервер и авто-самопинг
+    threading.Thread(target=run_http_server, daemon=True).start()
+    threading.Thread(target=self_ping_loop, daemon=True).start()
+
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🤖 Облачный бот запущен!")
+    print(f"🤖 Сервер и бот запущены на порту {PORT}! Защита от сна активна.")
     app.run_polling()
 
 if __name__ == "__main__":
