@@ -70,7 +70,7 @@ def self_ping_loop():
             pass
         time.sleep(480)
 
-# --- ПАНЕЛЬ КНОПОК ДЛЯ МАМЫ ---
+# --- ПАНЕЛЬ КНОПОК ---
 PERMANENT_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("🎮 Выбрать готовую игру"), KeyboardButton("🆕 Новая игра")],
@@ -81,25 +81,30 @@ PERMANENT_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 SYSTEM_PROMPT = """
-Ты — профессиональный разработчик мобильных игр.
-Ты умеешь создавать игры с нуля и ДОРАБАТЫВАТЬ существующие игры по запросу пользователя.
+Ты — элитный разработчик мобильных 2D и 3D игр, а также полезных приложений.
+Ты умеешь создавать игры с нуля и ДОРАБАТЫВАТЬ существующие проекты.
 
-Всегда выдавай ПОЛНЫЙ рабочий обновленный код СРАЗУ В ДВУХ ВАРИАНТАХ:
-1) HTML5-код для мгновенного теста в браузере (HTML, Canvas, CSS, JS в одном файле)
-2) Lua-код для сборки в Android APK (движок Love2D)
+ВОЗМОЖНОСТИ ПО ГРАФИКЕ:
+1. 2D игры: яркая и плавная 2D графика (Canvas 2D / Love2D Graphics) со спецэффектами (частицы, тени, анимации).
+2. 3D игры: полноценная трехмерная графика через WebGL / Three.js (3D трассы, машинки, 3D кубы, освещение, камеры от третьего лица).
+3. Приложения и утилиты: красивые мобильные интерфейсы со стилями, кнопками и сохранением состояния (localStorage).
 
-ФОРМАТ ОТВЕТА (СТРОГО СОБЛЮДАЙ):
+ТРЕБОВАНИЯ К КОДУ:
+1) HTML5-код (версия для мгновенного теста):
+   - Если игра 3D — подключай библиотеку Three.js через CDN (<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>) и делай полноценный 3D мир с камерой, текстурами и освещением.
+   - Если игра 2D или приложение — делай нативно на HTML5 Canvas или стильном CSS/JS.
+   - Полная адаптация под экран смартфона (сенсорные джойстики, кнопки на экране, тач-события).
+
+2) Lua-код (версия для Love2D APK):
+   - Оптимизированный код Love2D (main.lua) с отрисовкой через love.draw(), love.update(dt), touch/mouse событиями.
+
+ФОРМАТ ВЫВОДА:
 ```html
-<!-- здесь полный код HTML5 -->
+<!-- полный рабочий HTML5/3D/2D код -->
 ```
 ```lua
--- здесь полный код Love2D (main.lua)
+-- полный рабочий Love2D код
 ```
-
-ОБЩИЕ ТРЕБОВАНИЯ:
-- Адаптация под сенсорный экран смартфона (крупные элементы, тач-события или клики).
-- Красивая яркая графика, счетчик очков (Score), кнопка перезапуска.
-- Все рисуется кодом без внешних картинок (фигуры, текст, Canvas).
 """
 
 def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = False) -> tuple:
@@ -114,10 +119,10 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
             f"ТЕКУЩИЙ КОД ИГРЫ (HTML):\n```html\n{current_html}\n```\n\n"
             f"ТЕКУЩИЙ КОД ИГРЫ (LUA):\n```lua\n{current_lua}\n```\n\n"
             f"ЗАПРОС НА ДОРАБОТКУ:\n{user_prompt}\n\n"
-            f"Внеси запрошенные изменения и выдай ПОЛНЫЙ исправленный код игры в блоках ```html ... ``` и ```lua ... ```."
+            f"Внеси запрошенные изменения и выдай ПОЛНЫЙ исправленный код в блоках ```html ... ``` и ```lua ... ```."
         )
     else:
-        prompt_context = f"{SYSTEM_PROMPT}\n\nПользователь создает НОВУЮ игру:\n{user_prompt}"
+        prompt_context = f"{SYSTEM_PROMPT}\n\nПользователь создает НОВУЮ 2D/3D игру или приложение:\n{user_prompt}"
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent?key={GEMINI_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -175,7 +180,6 @@ def build_apk(lua_code: str, user_id: int) -> str:
                     zout.writestr(item, buffer)
             zout.writestr('assets/game.love', game_love_data)
 
-    # Запуск signer
     cmd = ["java", "-jar", JAR_SIGNER, "-a", out_apk_path, "--overwrite", "--allowResign"]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
@@ -195,11 +199,12 @@ def get_game_actions_keyboard():
 
 def get_preset_inline_keyboard():
     keyboard = [
-        [InlineKeyboardButton("🐱 Кликер с котиком", callback_data="preset_cat_clicker")],
-        [InlineKeyboardButton("🍬 Три в ряд (Конфетки)", callback_data="preset_match3")],
-        [InlineKeyboardButton("🐍 Веселая Змейка", callback_data="preset_snake")],
-        [InlineKeyboardButton("🏎 Гонки на машинках", callback_data="preset_racing")],
-        [InlineKeyboardButton("✨ Написать свою идею текстом", callback_data="custom_game")]
+        [InlineKeyboardButton("🏎 3D Гонки (Three.js)", callback_data="preset_3d_racing")],
+        [InlineKeyboardButton("🌌 3D Космос / Полеты", callback_data="preset_3d_space")],
+        [InlineKeyboardButton("🐱 2D Кликер с котиком", callback_data="preset_cat_clicker")],
+        [InlineKeyboardButton("🍬 2D Три в ряд", callback_data="preset_match3")],
+        [InlineKeyboardButton("🐍 2D Веселая Змейка", callback_data="preset_snake")],
+        [InlineKeyboardButton("✨ Написать свою 2D/3D идею", callback_data="custom_game")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -229,10 +234,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
     
     text = (
-        "👋 **Здравствуйте! Я помогу вам создать игру для телефона.**\n\n"
-        "⚡ Теперь игра создается **мгновенно в HTML** для быстрого теста!\n"
-        "📱 А когда всё понравится — вы сможете нажать кнопку **«Собрать в APK»** в 1 клик.\n\n"
-        "👇 Выберите готовую игру или используйте кнопки внизу:"
+        "👋 **Здравствуйте! Я создаю 2D и 3D игры и программы для телефона.**\n\n"
+        "🎮 **Поддержка 3D:** трёхмерная графика, освещение, вид от третьего лица.\n"
+        "🎨 **Поддержка 2D:** красочные аркады, головоломки, кликеры.\n\n"
+        "👇 Выберите готовую игру или напишите любую свою задумку:"
     )
     await update.message.reply_text(text, reply_markup=PERMANENT_KEYBOARD, parse_mode="Markdown")
     await update.message.reply_text("Выберите игру из списка:", reply_markup=get_preset_inline_keyboard())
@@ -243,12 +248,12 @@ async def process_apk_build(message, user_id: int):
     
     if not lua_code:
         await message.reply_text(
-            "⚠️ Сначала создайте или выберите игру, а затем нажмите кнопку сборки APK!",
+            "⚠️ Сначала создайте игру, а затем нажмите кнопку сборки APK!",
             reply_markup=PERMANENT_KEYBOARD
         )
         return
 
-    status_msg = await message.reply_text("⚙️ **Компилирую и подписываю APK для Android...**\nПожалуйста, подождите несколько секунд...")
+    status_msg = await message.reply_text("⚙️ **Компилирую и подписываю APK для Android...**\nПожалуйста, подождите...")
     
     try:
         loop = asyncio.get_event_loop()
@@ -294,7 +299,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "improve_game":
         user_projects[user_id]["awaiting_fix"] = True
         await query.message.reply_text(
-            "✏️ **Что вы хотите изменить в игре?**\nНапишите просто текстом (например: *«сделай скорость меньше»* или *«добавь кнопку паузы»*):",
+            "✏️ **Что вы хотите изменить в игре?**\nНапишите в сообщении (например: *«сделай 3D машинку быстрее»* или *«добавь ночное освещение»*):",
             reply_markup=PERMANENT_KEYBOARD
         )
         return
@@ -311,16 +316,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     presets = {
-        "preset_cat_clicker": "Красочная игра кликер: нажимай на котика, получай монетки, покупай улучшения и увеличивай доход в секунду",
-        "preset_match3": "Игра три в ряд с яркими разноцветными сладостями, счетчиком очков и ходов",
-        "preset_snake": "Классическая змейка с большими удобными кнопками управления на экране под телефон",
-        "preset_racing": "Гонки на машинках: уворачивайся от встречных машин, собирай канистры с бензином"
+        "preset_3d_racing": "Полноценная 3D игра Гонки на Three.js: трехмерная бесконечная трасса, 3D машинка с видом сзади, уворачивайся от препятствий, тач-кнопки руля влево-вправо на экране телефона",
+        "preset_3d_space": "Полноценная 3D игра Космический полет на Three.js: лети сквозь 3D астероиды в космосе, собирай светящиеся сферы энергии, вид от 3 лица",
+        "preset_cat_clicker": "Красочная 2D игра кликер: нажимай на котика, получай монетки, покупай улучшения и увеличивай доход в секунду",
+        "preset_match3": "2D игра три в ряд с яркими разноцветными сладостями, счетчиком очков и ходов",
+        "preset_snake": "Классическая 2D змейка с большими удобными кнопками управления на экране под телефон"
     }
 
     if data == "custom_game":
         user_projects[user_id]["awaiting_fix"] = False
         await query.message.reply_text(
-            "✍️ **Напишите любую вашу идею:**\n(Например: *«Хочу пасьянс»* или *«Хочу тетрис»*)",
+            "✍️ **Напишите любую вашу идею (2D или 3D):**\n(Например: *«Хочу 3D лабиринт от первого лица»* или *«Хочу 2D тетрис»*)",
             reply_markup=PERMANENT_KEYBOARD
         )
         return
@@ -331,12 +337,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_game_creation(message, user_id: int, prompt: str, is_update: bool):
     selected_model = user_projects.get(user_id, {}).get("model", "gemini-3.8-flash")
-    stage_title = "Улучшение игры" if is_update else "Создание игры"
+    stage_title = "Улучшение игры" if is_update else "Создание 2D/3D игры"
     
     status_msg = await message.reply_text(
         f"⚡ **[{stage_title}]**\n"
         f"🤖 Модель: `{selected_model}`\n"
-        f"⏳ Создаю быструю версию для теста... (0 сек)"
+        f"⏳ Разрабатываю графику и логику... (0 сек)"
     )
 
     start_time = time.time()
@@ -354,7 +360,7 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
             i += 1
             try:
                 await status_msg.edit_text(
-                    f"⚡ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ ИИ пишет игру{dot} ({elapsed} сек)\n🟢 Скоро будет готово!",
+                    f"⚡ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ ИИ создает мир и механику{dot} ({elapsed} сек)\n🟢 Скоро будет готово!",
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -376,7 +382,7 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
                 document=html_bytes,
                 filename="game.html",
                 caption=f"🎮 **Игра готова за {total_sec} сек!**\n\n"
-                        f"👉 **Шаг 1:** Откройте `game.html` в телефоне, чтобы сразу поиграть и проверить.\n\n"
+                        f"👉 **Шаг 1:** Откройте `game.html` в телефоне, чтобы сразу поиграть и оценить 2D/3D графику.\n\n"
                         f"👉 **Шаг 2:** Если игра понравилась — нажмите кнопку **«📱 Собрать в APK»** ниже!",
                 reply_markup=get_game_actions_keyboard()
             )
@@ -402,7 +408,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_projects:
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
 
-    # Кнопка сборки APK
     if text in ["📱 Собрать игру в APK", "/apk"]:
         await process_apk_build(update.message, user_id)
         return
@@ -423,7 +428,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🆕 Новая игра":
         user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": user_projects[user_id].get("model", "gemini-3.8-flash")}
         await update.message.reply_text(
-            "✨ **Начинаем новую игру!** Выберите готовую или напишите свою идею:",
+            "✨ **Начинаем новую игру!** Выберите готовую или напишите свою 2D/3D идею:",
             reply_markup=get_preset_inline_keyboard()
         )
         return
@@ -431,7 +436,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "✏️ Улучшить / Изменить":
         user_projects[user_id]["awaiting_fix"] = True
         await update.message.reply_text(
-            "✏️ **Что вы хотите изменить в игре?**\nНапишите в сообщении (например: *«сделай скорость меньше»*, *«кнопки крупнее»* или *«поменяй цвет»*):",
+            "✏️ **Что вы хотите изменить в игре?**\nНапишите в сообщении (например: *«добавь туман»*, *«сделай 3D машинку быстрее»* или *«добавь кнопку паузы»*):",
             reply_markup=PERMANENT_KEYBOARD
         )
         return
@@ -440,9 +445,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         curr_m = user_projects[user_id].get("model", "gemini-3.8-flash")
         help_text = (
             "❓ **Как пользоваться:**\n\n"
-            "1. Выберите игру или напишите идею — бот за 5-10 секунд сделает `game.html`.\n"
-            "2. Попробуйте игру в телефоне. Если нужно — напишите, что изменить.\n"
-            "3. Когда игра полностью устроит — нажмите кнопку **«📱 Собрать игру в APK»**!"
+            "• Создает как **2D игры**, так и полноценные **3D игры** (Three.js/WebGL).\n"
+            "• Напишите любую идею (например: *«Сделай 3D полет сквозь кольца»*).\n"
+            "• Откройте `game.html` для теста, а когда всё понравится — нажмите **«📱 Собрать игру в APK»**!"
         )
         await update.message.reply_text(help_text, reply_markup=PERMANENT_KEYBOARD, parse_mode="Markdown")
         return
@@ -466,7 +471,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print(f"🤖 Бот запущен! Сборка APK теперь доступна отдельной кнопкой.")
+    print(f"🤖 Бот с поддержкой 2D и 3D игр запущен!")
     app.run_polling()
 
 if __name__ == "__main__":
