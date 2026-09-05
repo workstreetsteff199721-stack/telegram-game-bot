@@ -19,8 +19,10 @@ from telegram.ext import (
     ContextTypes
 )
 
+# Читаем ключи из переменных окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8994105870:AAGdJsv0GkpZfXUnOAf9YQ5UUphVvZFzBOs")
-GEMINI_KEY = os.getenv("GEMINI_KEY", "AIzaSyC2D7Ou-4LhCeuJnzsCbsvCbPlV1AI0bQQ")
+GEMINI_KEY = os.getenv("GEMINI_KEY", "")
+
 PORT = int(os.getenv("PORT", 8080))
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 
@@ -29,10 +31,8 @@ JAR_SIGNER = os.path.join(BASE_DIR, "uber-apk-signer.jar")
 BASE_APK = os.path.join(BASE_DIR, "love_embed.apk")
 
 AVAILABLE_MODELS = {
-    "gemini-3.8-flash": "⚡ Gemini 3.8 Flash (Самая новая и умная)",
-    "gemini-3.7-flash": "🚀 Gemini 3.7 Flash (Очень быстрая)",
-    "gemini-3.5-flash": "💡 Gemini 3.5 Flash (Стабильная)",
-    "gemini-2.5-flash": "⚙️ Gemini 2.5 Flash (Классическая)"
+    "gemini-2.5-flash": "⚡ Gemini 2.5 Flash (Стабильная и быстрая)",
+    "gemini-2.5-pro": "🧠 Gemini 2.5 Pro (Максимальный интеллект)"
 }
 
 user_projects = {}
@@ -87,7 +87,7 @@ SYSTEM_PROMPT = """
 ВОЗМОЖНОСТИ ПО ГРАФИКЕ:
 1. 2D игры: яркая и плавная 2D графика (Canvas 2D / Love2D Graphics) со спецэффектами (частицы, тени, анимации).
 2. 3D игры: полноценная трехмерная графика через WebGL / Three.js (3D трассы, машинки, 3D кубы, освещение, камеры от третьего лица).
-3. Приложения и утилиты: красивые мобильные интерфейсы со стилями, кнопками и сохранением состояния (localStorage).
+3. Приложения и утилиты: красивые мобильные интерфейсы со стилями, кнопками и сохранением состояния.
 
 ТРЕБОВАНИЯ К КОДУ:
 1) HTML5-код (версия для мгновенного теста):
@@ -98,7 +98,7 @@ SYSTEM_PROMPT = """
 2) Lua-код (версия для Love2D APK):
    - Оптимизированный код Love2D (main.lua) с отрисовкой через love.draw(), love.update(dt), touch/mouse событиями.
 
-ФОРМАТ ВЫВОДА:
+ФОРМАТ ВЫВОДА (ОБЯЗАТЕЛЬНО В БЛОКАХ):
 ```html
 <!-- полный рабочий HTML5/3D/2D код -->
 ```
@@ -111,7 +111,7 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
     user_data = user_projects.get(user_id, {})
     current_lua = user_data.get("lua", "")
     current_html = user_data.get("html", "")
-    selected_model = user_data.get("model", "gemini-3.8-flash")
+    selected_model = user_data.get("model", "gemini-2.5-flash")
     
     if is_update and (current_lua or current_html):
         prompt_context = (
@@ -124,6 +124,9 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
     else:
         prompt_context = f"{SYSTEM_PROMPT}\n\nПользователь создает НОВУЮ 2D/3D игру или приложение:\n{user_prompt}"
 
+    if not GEMINI_KEY:
+        raise Exception("API ключ Gemini не настроен!")
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent?key={GEMINI_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
@@ -134,10 +137,7 @@ def generate_or_update_game(user_id: int, user_prompt: str, is_update: bool = Fa
     
     response = requests.post(url, headers=headers, json=payload, timeout=90)
     if response.status_code != 200:
-        url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
-        response = requests.post(url_fallback, headers=headers, json=payload, timeout=90)
-        if response.status_code != 200:
-            raise Exception(f"Ошибка Gemini API: {response.status_code} {response.text}")
+        raise Exception(f"Ошибка Gemini API: {response.status_code} {response.text}")
     
     data = response.json()
     try:
@@ -209,7 +209,7 @@ def get_preset_inline_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_models_inline_keyboard(user_id: int):
-    current_model = user_projects.get(user_id, {}).get("model", "gemini-3.8-flash")
+    current_model = user_projects.get(user_id, {}).get("model", "gemini-2.5-flash")
     keyboard = []
     for model_id, name in AVAILABLE_MODELS.items():
         prefix = "✅ " if model_id == current_model else "⚪ "
@@ -231,7 +231,7 @@ async def post_init(application: Application):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in user_projects:
-        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
+        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-2.5-flash"}
     
     text = (
         "👋 **Здравствуйте! Я создаю 2D и 3D игры и программы для телефона.**\n\n"
@@ -283,7 +283,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if user_id not in user_projects:
-        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
+        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-2.5-flash"}
 
     if data == "build_apk_now":
         await process_apk_build(query.message, user_id)
@@ -336,7 +336,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_game_creation(query.message, user_id, prompt, is_update=False)
 
 async def process_game_creation(message, user_id: int, prompt: str, is_update: bool):
-    selected_model = user_projects.get(user_id, {}).get("model", "gemini-3.8-flash")
+    selected_model = user_projects.get(user_id, {}).get("model", "gemini-2.5-flash")
     stage_title = "Улучшение игры" if is_update else "Создание 2D/3D игры"
     
     status_msg = await message.reply_text(
@@ -360,7 +360,7 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
             i += 1
             try:
                 await status_msg.edit_text(
-                    f"⚡ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ ИИ создает мир и механику{dot} ({elapsed} сек)\n🟢 Скоро будет готово!",
+                    f"⚡ **[{stage_title}]**\n🤖 Модель: `{selected_model}`\n⏳ ИИ создает мир и механику{dot} ({elapsed} сек)\n🟢 Бот на связи в облаке!",
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -397,7 +397,7 @@ async def process_game_creation(message, user_id: int, prompt: str, is_update: b
         timer_task.cancel()
         logger.error(f"Ошибка: {e}")
         try:
-            await status_msg.edit_text(f"❌ Ошибка: {str(e)}", reply_markup=PERMANENT_KEYBOARD)
+            await status_msg.edit_text(f"❌ Ошибка генерации: {str(e)}", reply_markup=PERMANENT_KEYBOARD)
         except Exception:
             pass
 
@@ -406,14 +406,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
     if user_id not in user_projects:
-        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-3.8-flash"}
+        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": "gemini-2.5-flash"}
 
     if text in ["📱 Собрать игру в APK", "/apk"]:
         await process_apk_build(update.message, user_id)
         return
 
     if text in ["🤖 Выбрать модель ИИ", "/models"]:
-        curr = user_projects[user_id].get("model", "gemini-3.8-flash")
+        curr = user_projects[user_id].get("model", "gemini-2.5-flash")
         await update.message.reply_text(
             f"🤖 **Выберите модель Gemini AI:**\nСейчас активна: `{AVAILABLE_MODELS.get(curr, curr)}`",
             reply_markup=get_models_inline_keyboard(user_id),
@@ -426,7 +426,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🆕 Новая игра":
-        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": user_projects[user_id].get("model", "gemini-3.8-flash")}
+        user_projects[user_id] = {"lua": "", "html": "", "awaiting_fix": False, "model": user_projects[user_id].get("model", "gemini-2.5-flash")}
         await update.message.reply_text(
             "✨ **Начинаем новую игру!** Выберите готовую или напишите свою 2D/3D идею:",
             reply_markup=get_preset_inline_keyboard()
@@ -442,7 +442,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "❓ Помощь":
-        curr_m = user_projects[user_id].get("model", "gemini-3.8-flash")
+        curr_m = user_projects[user_id].get("model", "gemini-2.5-flash")
         help_text = (
             "❓ **Как пользоваться:**\n\n"
             "• Создает как **2D игры**, так и полноценные **3D игры** (Three.js/WebGL).\n"
@@ -471,7 +471,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print(f"🤖 Бот с поддержкой 2D и 3D игр запущен!")
+    print(f"🤖 Бот запущен!")
     app.run_polling()
 
 if __name__ == "__main__":
